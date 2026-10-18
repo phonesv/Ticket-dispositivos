@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ticket de venta – Phone SV (dispositivos)</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;padding:12px 0 100px;background:#dcdcdc;font-family:-apple-system,Helvetica,Arial,sans-serif}
+  /* La vista previa se reduce al ancho del teléfono; el ticket real sigue midiendo 576 px */
+  #wrap{margin:0 auto;overflow:hidden}
+  #ticket{width:576px;transform-origin:top left;background:#fff;color:#000;padding:22px 20px 30px;
+          font-family:"Courier New",Courier,monospace;font-size:23px;line-height:1.28}
+  .bar{position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:center;
+       padding:14px 12px calc(14px + env(safe-area-inset-bottom));
+       background:linear-gradient(to top,#dcdcdc 65%,rgba(220,220,220,0))}
+  .bar button{font-size:17px;padding:12px 30px;border:1px solid #bdbdc2;border-radius:999px;
+              background:#f4f4f6;color:#222;font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+  .bar button:active{background:#e4e4e8}
+  .c{text-align:center}.b{font-weight:700}
+  .neg{font-size:38px;font-weight:700;letter-spacing:1px}
+  .sep{border-top:2px dashed #000;margin:12px 0}
+  .row{display:flex;justify-content:space-between;gap:10px}
+  .row span:first-child{flex:0 0 auto}
+  .row span:last-child{text-align:right;word-break:break-word}
+  .row.desc span:first-child{flex:1 1 auto;font-weight:700;word-break:break-word}
+  .row.desc span:last-child{flex:0 0 auto}
+  .big{font-size:34px;font-weight:700}
+  .small{font-size:19px}
+  .tag{display:inline-block;border:2px solid #000;padding:0 10px;font-weight:700;margin-bottom:6px}
+  @media print{
+    @page{size:80mm auto;margin:0}
+    body{background:#fff;padding:0}.bar{display:none}
+    #wrap{width:auto!important;height:auto!important;overflow:visible}
+    #ticket{transform:none!important;width:72mm;padding:3mm;font-size:3.1mm}
+    .neg{font-size:5mm}.big{font-size:4.4mm}.small{font-size:2.5mm}
+  }
+</style>
+</head>
+<body>
+<div id="wrap"><div id="ticket"></div></div>
+<div class="bar"><button id="btnPng">🖨️ Imprimir</button></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>
+/* ============ CONFIGURACIÓN ============ */
+const NEGOCIO = {
+  nombre:   'PHONE SV',
+  direccion:'Plaza Comercial Pasares, San Juan Opico, La Libertad',
+  tel:      'WhatsApp: 6064-3493'
+};
+const MONEDA = '$';
+const PIE = 'Gracias por su compra';
+/* ======================================= */
+
+/* Parámetros de URL = columnas de AppSheet:
+   IMEI, Telefono, Nombre, Nombre_Vendedor, Fecha_Venta, TipoModelo, Modelo, Capacidad, Color,
+   Estado_Dispositivo, Precio_Venta, Costo_Envio, Total, Tipo_Pago */
+const q = new URLSearchParams(location.search);
+const hayDatos = [...q.keys()].length > 0;
+const get = k => (q.get(k) || '').trim();
+
+const DEMO = {
+  IMEI:'356938035643809', Telefono:'7000-0000', Nombre:'Cliente de prueba', Nombre_Vendedor:'Jairo', Fecha_Venta:'17/10/2026',
+  TipoModelo:'Celular', Modelo:'iPhone 13', Capacidad:'128 GB', Color:'Medianoche', Estado_Dispositivo:'Usado',
+  Precio_Venta:'420', Costo_Envio:'3.50', Total:'423.50', Tipo_Pago:'Efectivo'
+};
+const D = hayDatos ? Object.fromEntries([...q.keys()].map(k => [k, get(k)])) : DEMO;
+
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const num = s => {
+  let t = String(s ?? '').replace(/[^0-9.,-]/g, '');
+  t = t.includes('.') ? t.replace(/,/g, '') : t.replace(',', '.');   // "1,200.50" y "12,5"
+  const n = parseFloat(t); return isNaN(n) ? 0 : n;
+};
+const money = n => MONEDA + n.toFixed(2);
+const line = (a, b) => b ? `<div class="row"><span>${esc(a)}</span><span>${esc(b)}</span></div>` : '';
+
+/* Fecha de venta: AppSheet la manda como mes/día/año (o aaaa-mm-dd); se muestra día/mes/año */
+function fechaVenta(v){
+  const t = String(v || '').trim(); if (!t) return '';
+  const p2 = n => String(n).padStart(2, '0');
+  let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return `${p2(m[3])}/${p2(m[2])}/${m[1]}`;
+  m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (!m) return t;
+  let a = +m[1], b = +m[2];
+  if (a > 12) return `${p2(a)}/${p2(b)}/${m[3]}`;      // ya viene día/mes/año
+  return `${p2(b)}/${p2(a)}/${m[3]}`;                  // mes/día/año -> día/mes/año
+}
+
+/* Fecha y hora de emisión del ticket, 24 h */
+function fechaTxt(){
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function render(){
+  const cap = (D.Capacidad || '').trim();
+  const descripcion = (D.Modelo || '') + (cap && cap !== '-' ? ' ' + cap : '');
+  const precio = num(D.Precio_Venta);
+  const envio = num(D.Costo_Envio);
+  const total = D.Total !== undefined && D.Total !== '' ? num(D.Total) : precio + envio;
+
+  let h = '';
+  h += `<div class="c"><div class="neg">${esc(NEGOCIO.nombre)}</div>`;
+  h += `<div class="small">${esc(NEGOCIO.direccion)}</div><div class="small">${esc(NEGOCIO.tel)}</div></div>`;
+  h += `<div class="sep"></div>`;
+
+  h += `<div class="c"><span class="tag">TICKET DE VENTA</span><div class="b">DISPOSITIVOS</div></div>`;
+  h += `<div class="sep"></div>`;
+  h += line('Ticket:', D.IMEI);
+  h += line('Fecha de venta:', fechaVenta(D.Fecha_Venta));
+  h += line('Cliente:', D.Nombre);
+  h += line('Tel:', D.Telefono);
+  h += line('Asistente:', D.Nombre_Vendedor);
+
+  h += `<div class="sep"></div><div class="row b"><span>DESCRIPCIÓN</span><span>IMPORTE</span></div><div class="sep" style="margin:6px 0"></div>`;
+  h += `<div class="b" style="word-break:break-word">${esc(descripcion)}</div>`;
+  h += `<div class="row"><span>1 x ${money(precio)}</span><span>${money(precio)}</span></div>`;
+
+  h += `<div class="sep"></div><div class="b c">DATOS DEL EQUIPO</div>`;
+  h += line('Tipo:', D.TipoModelo);
+  h += line('Equipo:', D.Modelo);
+  h += line('Capacidad:', cap);
+  h += line('Color:', D.Color);
+  h += line('Estado:', D.Estado_Dispositivo);
+
+  h += `<div class="sep"></div>`;
+  h += line('Subtotal:', money(precio));
+  h += line('Envío:', money(envio));
+  h += `<div class="row big"><span>TOTAL:</span><span>${money(total)}</span></div>`;
+
+  h += `<div class="sep"></div>`;
+  h += line('Pago:', D.Tipo_Pago);
+
+  h += `<div class="sep"></div><div class="c b">${esc(PIE)}</div>`;
+  h += `<div class="c small" style="margin-top:6px">Emitido: ${fechaTxt()}</div>`;
+  document.getElementById('ticket').innerHTML = h;
+}
+render();
+
+/* Ajuste de la vista previa al ancho de la pantalla */
+function fit(){
+  const t = document.getElementById('ticket'), w = document.getElementById('wrap');
+  const k = Math.min(1, (window.innerWidth - 24) / 576);
+  t.style.transform = `scale(${k})`;
+  w.style.width  = (576 * k) + 'px';
+  w.style.height = (t.offsetHeight * k) + 'px';
+}
+fit();
+window.addEventListener('resize', fit);
+window.addEventListener('load', fit);
+
+/* Imprimir: genera el PNG a tamaño real (576 px) y lo comparte a la app de la impresora (solo el archivo, sin title) */
+document.getElementById('btnPng').addEventListener('click', async () => {
+  const holder = document.createElement('div');
+  holder.style.cssText = 'position:absolute;left:-10000px;top:0;width:576px';
+  const clone = document.getElementById('ticket').cloneNode(true);
+  clone.style.transform = 'none';
+  holder.appendChild(clone);
+  document.body.appendChild(holder);
+  try {
+    const canvas = await html2canvas(clone, {scale: 2, backgroundColor: '#ffffff', windowWidth: 576, scrollX: 0, scrollY: 0});
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+    const file = new File([blob], `ticket-dispositivo-${D.IMEI || 'venta'}.png`, {type: 'image/png'});
+    if (navigator.canShare && navigator.canShare({files: [file]})) {
+      try { await navigator.share({files: [file]}); } catch (e) {}
+    } else {
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; a.click();
+    }
+  } finally { holder.remove(); }
+});
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>
