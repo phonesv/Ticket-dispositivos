@@ -19,6 +19,7 @@
   .bar button:active{background:#e4e4e8}
   .c{text-align:center}.b{font-weight:700}
   .neg{font-size:38px;font-weight:700;letter-spacing:1px}
+  .eslogan{font-size:21px;font-style:italic;font-weight:700;margin:2px 0 6px}
   .sep{border-top:2px dashed #000;margin:12px 0}
   .row{display:flex;justify-content:space-between;gap:10px}
   .row span:first-child{flex:0 0 auto}
@@ -27,6 +28,7 @@
   .row.desc span:last-child{flex:0 0 auto}
   .big{font-size:34px;font-weight:700}
   .small{font-size:19px}
+  .legal{font-size:16px;line-height:1.25;margin-top:8px}
   .tag{display:inline-block;border:2px solid #000;padding:0 10px;font-weight:700;margin-bottom:6px}
   @media print{
     @page{size:80mm auto;margin:0}
@@ -34,6 +36,7 @@
     #wrap{width:auto!important;height:auto!important;overflow:visible}
     #ticket{transform:none!important;width:72mm;padding:3mm;font-size:3.1mm}
     .neg{font-size:5mm}.big{font-size:4.4mm}.small{font-size:2.5mm}
+    .eslogan{font-size:2.8mm}.legal{font-size:2.2mm}
   }
 </style>
 </head>
@@ -46,11 +49,13 @@
 /* ============ CONFIGURACIÓN ============ */
 const NEGOCIO = {
   nombre:   'PHONE SV',
-  direccion:'Plaza Comercial Pasares, San Juan Opico, La Libertad',
+  eslogan:  '¡Tu mejor opción en calidad, precio y garantía!',
+  direccion:'Plaza Comercial Pasares, Km 35 ½ Opico, Local H5, La Libertad Centro, La Libertad, El Salvador',
   tel:      'WhatsApp: 6064-3493'
 };
 const MONEDA = '$';
 const PIE = 'Gracias por su compra';
+const LEGAL = 'Este ticket no sustituye su factura electrónica, enviada a su correo o WhatsApp.';
 /* ======================================= */
 
 /* Parámetros de URL = columnas de AppSheet:
@@ -104,6 +109,7 @@ function render(){
 
   let h = '';
   h += `<div class="c"><div class="neg">${esc(NEGOCIO.nombre)}</div>`;
+  h += `<div class="eslogan">${esc(NEGOCIO.eslogan)}</div>`;
   h += `<div class="small">${esc(NEGOCIO.direccion)}</div><div class="small">${esc(NEGOCIO.tel)}</div></div>`;
   h += `<div class="sep"></div>`;
 
@@ -135,7 +141,8 @@ function render(){
   h += line('Pago:', D.Tipo_Pago);
 
   h += `<div class="sep"></div><div class="c b">${esc(PIE)}</div>`;
-  h += `<div class="c small" style="margin-top:6px">Emitido: ${fechaTxt()}</div>`;
+  h += `<div class="c legal">${esc(LEGAL)}</div>`;
+  h += `<div class="c legal" style="margin-top:4px">Emitido: ${fechaTxt()}</div>`;
   document.getElementById('ticket').innerHTML = h;
 }
 render();
