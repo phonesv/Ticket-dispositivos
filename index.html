@@ -49,6 +49,8 @@
   #ticket .tfb{font-size:15px;line-height:18px;height:18px}
   #ticket .tinv{background:#000;color:#fff}
   #ticket .talto{height:48px;line-height:48px}
+  #ticket .tmarco{height:36px;line-height:24px;padding-top:0}
+  #ticket .tmarco .tinv{display:inline-block;padding:6px 0}
   #ticket .talto .tinv,#ticket .talto>span{display:inline-block;transform:scaleY(2);transform-origin:center}
   @media print{#ticket .ln{height:auto}}
 </style>
@@ -127,7 +129,7 @@ const TXT = {
 /* Arma el ticket como lista de líneas con su formato */
 function modeloTicket(){
   const N = TXT.COLS, L = [];
-  let st = { al: 0, b: false, x2: false, alto: false, fb: false, inv: false };   // alto = doble alto (mismo ancho)   // alineación 0 izq / 1 centro
+  let st = { al: 0, b: false, x2: false, alto: false, marco: false, fb: false, inv: false };   // marco = franja negra arriba y abajo del texto   // alineación 0 izq / 1 centro
   const set = o => { st = { ...st, ...o }; };
   const ln = (s = '') => L.push({ s: String(s), ...st });
   const cols = () => st.fb ? 64 : (st.x2 ? N / 2 : N);
@@ -163,8 +165,8 @@ function modeloTicket(){
   ln(NEGOCIO.tel);
   set({ al: 0 }); sep();
 
-  set({ al: 1, b: true, inv: true, alto: true }); ln('  TICKET DE VENTA  ');   // recuadro más alto
-  set({ inv: false, alto: false }); ln('DISPOSITIVOS');
+  set({ al: 1, b: true, inv: true, marco: true }); ln('  TICKET DE VENTA  ');   // recuadro negro un poco más alto
+  set({ inv: false, marco: false }); ln('DISPOSITIVOS');
   set({ al: 0, b: false }); sep();
 
   filaSi('Ticket:', D.IMEI);
@@ -205,7 +207,7 @@ function modeloTicket(){
 function htmlTicket(L){
   const e = s => esc(s).replace(/ /g, '&nbsp;');
   return L.map(l => {
-    const cls = ['ln', l.b ? 'tb' : '', l.x2 ? 'tx2' : '', l.alto ? 'talto' : '', l.fb ? 'tfb' : ''].join(' ');
+    const cls = ['ln', l.b ? 'tb' : '', l.x2 ? 'tx2' : '', l.alto ? 'talto' : '', l.marco ? 'tmarco' : '', l.fb ? 'tfb' : ''].join(' ');
     const txt = l.inv ? `<span class="tinv">${e(l.s)}</span>` : (l.alto ? `<span>${e(l.s)}</span>` : e(l.s));
     return `<div class="${cls}" style="text-align:${l.al ? 'center' : 'left'}">${txt || '&nbsp;'}</div>`;
   }).join('');
@@ -224,6 +226,17 @@ function ticketTexto(){
       else { const base = ch.normalize('NFD').replace(/[̀-ͯ]/g, ''); out.push(base.charCodeAt(0) < 128 ? base.charCodeAt(0) : 63); }
     }
   };
+  // Franja negra del ancho de N caracteres, centrada, 6 puntos de alto (imagen de 576 puntos)
+  const franja = n => {
+    const ancho = 576, alto = 6, bpl = ancho / 8, w = n * 12, x0 = Math.round((ancho - w) / 2);
+    out.push(0x1D, 0x76, 0x30, 0x00, bpl, 0, alto, 0);
+    for (let y = 0; y < alto; y++)
+      for (let xb = 0; xb < bpl; xb++) {
+        let byte = 0;
+        for (let bit = 0; bit < 8; bit++) { const x = xb * 8 + bit; if (x >= x0 && x < x0 + w) byte |= 0x80 >> bit; }
+        out.push(byte);
+      }
+  };
   out.push(0x1B, 0x40);                 // reiniciar
   out.push(0x1C, 0x2E);                 // apagar modo chino
   out.push(0x1B, 0x74, TXT.CODEPAGE);   // página de caracteres
@@ -233,11 +246,18 @@ function ticketTexto(){
     out.push(0x1D, 0x21, l.x2 ? 0x11 : (l.alto ? 0x01 : 0));   // doble tamaño / doble alto
     out.push(0x1B, 0x4D, l.fb ? 1 : 0);               // letra pequeña
     out.push(0x1D, 0x42, l.inv ? 1 : 0);              // blanco sobre negro
+    if (l.marco) {
+      franja(l.s.length);                             // franja negra arriba
+      out.push(0x1B, 0x33, 24);                       // interlineado justo (sin espacio blanco)
+      txt(l.s); out.push(10);
+      franja(l.s.length);                             // franja negra abajo
+      out.push(0x1B, 0x32);                           // interlineado normal
+      continue;
+    }
     txt(l.s); out.push(10);
   }
   out.push(0x1D, 0x42, 0, 0x1D, 0x21, 0, 0x1B, 0x4D, 0, 0x1B, 0x61, 0);
-  out.push(0x1B, 0x64, 4);              // avanzar 4 líneas
-  out.push(0x1D, 0x56, 0x42, 0x00);     // cortar
+  out.push(0x1D, 0x56, 0x42, 0x00);     // avanza solo hasta la cuchilla y corta (sin papel extra)
   return new Uint8Array(out);
 }
 
