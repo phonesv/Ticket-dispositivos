@@ -159,25 +159,151 @@ fit();
 window.addEventListener('resize', fit);
 window.addEventListener('load', fit);
 
-/* Imprimir: genera el PNG a tamaño real (576 px) y lo comparte a la app de la impresora (solo el archivo, sin title) */
-document.getElementById('btnPng').addEventListener('click', async () => {
-  const holder = document.createElement('div');
-  holder.style.cssText = 'position:absolute;left:-10000px;top:0;width:576px';
-  const clone = document.getElementById('ticket').cloneNode(true);
-  clone.style.transform = 'none';
-  holder.appendChild(clone);
-  document.body.appendChild(holder);
-  try {
-    const canvas = await html2canvas(clone, {scale: 2, backgroundColor: '#ffffff', windowWidth: 576, scrollX: 0, scrollY: 0});
-    const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
-    const file = new File([blob], `ticket-dispositivo-${D.IMEI || 'venta'}.png`, {type: 'image/png'});
-    if (navigator.canShare && navigator.canShare({files: [file]})) {
-      try { await navigator.share({files: [file]}); } catch (e) {}
-    } else {
-      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; a.click();
+/* ================= Imprimir por Bluetooth (NETUM, ESC/POS) =================
+   - Chrome (Mac/Android/Windows) y Bluefy (iPhone/iPad): conecta, imprime, corta y suelta la impresora.
+   - Safari / Chrome en iPhone: el botón abre este mismo ticket en Bluefy.
+   - Otros navegadores sin Bluetooth: comparte/descarga el PNG como antes. */
+const BLE = (() => {
+  const SERVICIOS = [
+    '000018f0-0000-1000-8000-00805f9b34fb', '0000ff00-0000-1000-8000-00805f9b34fb',
+    '0000ffe0-0000-1000-8000-00805f9b34fb', '0000ae30-0000-1000-8000-00805f9b34fb',
+    '0000fee7-0000-1000-8000-00805f9b34fb', 'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
+    '49535343-fe7d-4ae5-8fa9-9fafd205e455'
+  ];
+  const ANCHO = 576, TROZO = 180, PAUSA = 5;   // 72 mm a 203 dpi; velocidad probada
+  const espera = ms => new Promise(r => setTimeout(r, ms));
+
+  async function canal(dev) {
+    const srv = await dev.gatt.connect();
+    for (const s of await srv.getPrimaryServices())
+      for (const c of await s.getCharacteristics())
+        if (c.properties.write || c.properties.writeWithoutResponse)
+          return { c, sinResp: !c.properties.write };
+    throw new Error('No encontré el canal de la impresora.');
+  }
+
+  async function enviar(ch, bytes) {
+    for (let i = 0; i < bytes.length; i += TROZO) {
+      const p = bytes.slice(i, i + TROZO);
+      if (ch.sinResp) { await ch.c.writeValueWithoutResponse(p); await espera(PAUSA); }
+      else await ch.c.writeValue(p);
     }
-  } finally { holder.remove(); }
-});
+  }
+
+  // Canvas -> ESC/POS raster; las filas en blanco solo avanzan papel
+  function raster(src) {
+    const alto = Math.round(src.height * ANCHO / src.width);
+    const cv = document.createElement('canvas'); cv.width = ANCHO; cv.height = alto;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, ANCHO, alto);
+    ctx.drawImage(src, 0, 0, ANCHO, alto);
+    const px = ctx.getImageData(0, 0, ANCHO, alto).data, bpl = ANCHO / 8, out = [], filas = [];
+    for (let y = 0; y < alto; y++) {
+      const f = new Uint8Array(bpl); let vacia = true;
+      for (let xb = 0; xb < bpl; xb++) {
+        let b = 0;
+        for (let bit = 0; bit < 8; bit++) {
+          const i = (y * ANCHO + xb * 8 + bit) * 4;
+          if (px[i + 3] > 128 && 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2] < 140) b |= 0x80 >> bit;
+        }
+        f[xb] = b; if (b) vacia = false;
+      }
+      filas.push({ f, vacia });
+    }
+    let y = 0;
+    while (y < alto) {
+      if (filas[y].vacia) {
+        let n = 0; while (y < alto && filas[y].vacia) { n++; y++; }
+        while (n > 0) { const m = Math.min(255, n); out.push(0x1B, 0x4A, m); n -= m; }
+      } else {
+        const ini = y; while (y < alto && !filas[y].vacia && y - ini < 200) y++;
+        const h = y - ini;
+        out.push(0x1D, 0x76, 0x30, 0x00, bpl & 255, bpl >> 8, h & 255, h >> 8);
+        for (let k = ini; k < y; k++) for (const b of filas[k].f) out.push(b);
+      }
+    }
+    return new Uint8Array(out);
+  }
+
+  async function imprimir(hacerCanvas, avisar) {
+    // La lista de impresoras se abre de inmediato (el navegador exige que sea justo después del toque)
+    const dev = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: SERVICIOS });
+    avisar('Preparando ticket…');
+    const datos = raster(await hacerCanvas());
+    avisar('Conectando…');
+    let ch;
+    try { ch = await canal(dev); }
+    catch (e) { throw new Error('No se pudo conectar. ¿Está encendida o la está usando otro equipo?'); }
+    try {
+      avisar('Imprimiendo…');
+      await enviar(ch, new Uint8Array([0x1B, 0x40]));                          // ESC @
+      await enviar(ch, datos);
+      await enviar(ch, new Uint8Array([0x1B, 0x64, 0x04, 0x1D, 0x56, 0x42, 0x00])); // avanzar + cortar
+      await espera(300);
+    } finally {
+      try { dev.gatt.disconnect(); } catch (e) {}       // suelta la impresora
+    }
+  }
+
+  const hayBluetooth = !!navigator.bluetooth;
+  const esIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const abrirEnBluefy = () => { location.href = 'bluefy://open?url=' + encodeURIComponent(location.href); };
+
+  return { imprimir, hayBluetooth, esIOS, abrirEnBluefy };
+})();
+
+/* Botón Imprimir */
+(() => {
+  const btn = document.getElementById('btnPng');
+  const textoOriginal = btn.textContent;
+  const aviso = document.createElement('div');
+  aviso.style.cssText = 'position:fixed;left:12px;right:12px;bottom:calc(76px + env(safe-area-inset-bottom));' +
+    'text-align:center;font-size:15px;color:#222;pointer-events:none';
+  document.body.appendChild(aviso);
+  const avisar = (t, ms) => { aviso.textContent = t || ''; if (ms) setTimeout(() => { if (aviso.textContent === t) aviso.textContent = ''; }, ms); };
+
+  if (!BLE.hayBluetooth && BLE.esIOS) btn.textContent = '🖨️ Abrir en Bluefy';
+
+  async function canvasDelTicket(escala) {
+    const holder = document.createElement('div');
+    holder.style.cssText = 'position:absolute;left:-10000px;top:0;width:576px';
+    const clone = document.getElementById('ticket').cloneNode(true);
+    clone.style.transform = 'none';
+    holder.appendChild(clone); document.body.appendChild(holder);
+    try { return await html2canvas(clone, { scale: escala, backgroundColor: '#ffffff', windowWidth: 576, scrollX: 0, scrollY: 0 }); }
+    finally { holder.remove(); }
+  }
+
+  let ocupado = false;
+  btn.addEventListener('click', async () => {
+    if (ocupado) return;
+
+    // iPhone/iPad fuera de Bluefy -> abrir el mismo ticket en Bluefy
+    if (!BLE.hayBluetooth && BLE.esIOS) { BLE.abrirEnBluefy(); return; }
+
+    // Sin Bluetooth (p. ej. Safari en Mac) -> compartir/descargar PNG como antes
+    if (!BLE.hayBluetooth) {
+      const canvas = await canvasDelTicket(2);
+      const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+      const file = new File([blob], (document.title || 'ticket').replace(/[^\w-]+/g, '-') + '.png', { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file] }); } catch (e) {} }
+      else { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; a.click(); }
+      return;
+    }
+
+    ocupado = true; btn.disabled = true; btn.textContent = '⏳ Imprimiendo…';
+    try {
+      await BLE.imprimir(() => canvasDelTicket(1), avisar);
+      avisar('✅ Impreso', 3000);
+    } catch (e) {
+      if (e && e.name === 'NotFoundError') avisar('');                    // canceló la lista
+      else avisar('⚠️ ' + (e && e.message ? e.message : 'No se pudo imprimir'), 6000);
+    } finally {
+      ocupado = false; btn.disabled = false; btn.textContent = textoOriginal;
+    }
+  });
+})();
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
