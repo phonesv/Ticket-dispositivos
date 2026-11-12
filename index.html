@@ -196,6 +196,7 @@ const BLE = (() => {
     const cv = document.createElement('canvas'); cv.width = ANCHO; cv.height = alto;
     const ctx = cv.getContext('2d');
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, ANCHO, alto);
+    ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(src, 0, 0, ANCHO, alto);
     const px = ctx.getImageData(0, 0, ANCHO, alto).data, bpl = ANCHO / 8, out = [], filas = [];
     for (let y = 0; y < alto; y++) {
@@ -204,23 +205,17 @@ const BLE = (() => {
         let b = 0;
         for (let bit = 0; bit < 8; bit++) {
           const i = (y * ANCHO + xb * 8 + bit) * 4;
-          if (px[i + 3] > 128 && 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2] < 140) b |= 0x80 >> bit;
+          if (px[i + 3] > 128 && 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2] < 175) b |= 0x80 >> bit;
         }
         f[xb] = b; if (b) vacia = false;
       }
       filas.push({ f, vacia });
     }
-    let y = 0;
-    while (y < alto) {
-      if (filas[y].vacia) {
-        let n = 0; while (y < alto && filas[y].vacia) { n++; y++; }
-        while (n > 0) { const m = Math.min(255, n); out.push(0x1B, 0x4A, m); n -= m; }
-      } else {
-        const ini = y; while (y < alto && !filas[y].vacia && y - ini < 200) y++;
-        const h = y - ini;
-        out.push(0x1D, 0x76, 0x30, 0x00, bpl & 255, bpl >> 8, h & 255, h >> 8);
-        for (let k = ini; k < y; k++) for (const b of filas[k].f) out.push(b);
-      }
+    // Todas las filas (también las blancas) van como imagen: así la altura sale exacta
+    for (let ini = 0; ini < alto; ini += 200) {
+      const h = Math.min(200, alto - ini);
+      out.push(0x1D, 0x76, 0x30, 0x00, bpl & 255, bpl >> 8, h & 255, h >> 8);
+      for (let k = ini; k < ini + h; k++) for (const b of filas[k].f) out.push(b);
     }
     return new Uint8Array(out);
   }
@@ -263,7 +258,10 @@ const BLE = (() => {
   document.body.appendChild(aviso);
   const avisar = (t, ms) => { aviso.textContent = t || ''; if (ms) setTimeout(() => { if (aviso.textContent === t) aviso.textContent = ''; }, ms); };
 
-  if (!BLE.hayBluetooth && BLE.esIOS) btn.textContent = '🖨️ Abrir en Bluefy';
+  if (!BLE.hayBluetooth && BLE.esIOS) {
+    btn.textContent = '🖨️ Abrir en Bluefy';
+    BLE.abrirEnBluefy();   // salto automático; si falla, queda el botón
+  }
 
   async function canvasDelTicket(escala) {
     const holder = document.createElement('div');
@@ -294,7 +292,7 @@ const BLE = (() => {
 
     ocupado = true; btn.disabled = true; btn.textContent = '⏳ Imprimiendo…';
     try {
-      await BLE.imprimir(() => canvasDelTicket(1), avisar);
+      await BLE.imprimir(() => canvasDelTicket(2), avisar);
       avisar('✅ Impreso', 3000);
     } catch (e) {
       if (e && e.name === 'NotFoundError') avisar('');                    // canceló la lista
