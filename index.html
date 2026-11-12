@@ -2,6 +2,9 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ticket de venta – Phone SV (dispositivos)</title>
 <style>
@@ -45,6 +48,8 @@
   #ticket .tx2{font-size:40px;line-height:48px;height:48px}
   #ticket .tfb{font-size:15px;line-height:18px;height:18px}
   #ticket .tinv{background:#000;color:#fff}
+  #ticket .talto{height:48px;line-height:48px}
+  #ticket .talto .tinv,#ticket .talto>span{display:inline-block;transform:scaleY(2);transform-origin:center}
   @media print{#ticket .ln{height:auto}}
 </style>
 </head>
@@ -122,7 +127,7 @@ const TXT = {
 /* Arma el ticket como lista de líneas con su formato */
 function modeloTicket(){
   const N = TXT.COLS, L = [];
-  let st = { al: 0, b: false, x2: false, fb: false, inv: false };   // alineación 0 izq / 1 centro
+  let st = { al: 0, b: false, x2: false, alto: false, fb: false, inv: false };   // alto = doble alto (mismo ancho)   // alineación 0 izq / 1 centro
   const set = o => { st = { ...st, ...o }; };
   const ln = (s = '') => L.push({ s: String(s), ...st });
   const cols = () => st.fb ? 64 : (st.x2 ? N / 2 : N);
@@ -153,12 +158,13 @@ function modeloTicket(){
   /* Encabezado */
   set({ al: 1, b: true, x2: true }); ln(NEGOCIO.nombre);
   set({ x2: false }); partir(NEGOCIO.eslogan).forEach(t => ln(t));
+  ln('');                                             // línea en blanco
   set({ b: false }); partir(NEGOCIO.direccion).forEach(t => ln(t));
   ln(NEGOCIO.tel);
   set({ al: 0 }); sep();
 
-  set({ al: 1, b: true, inv: true }); ln(' TICKET DE VENTA ');
-  set({ inv: false }); ln('DISPOSITIVOS');
+  set({ al: 1, b: true, inv: true, alto: true }); ln('  TICKET DE VENTA  ');   // recuadro más alto
+  set({ inv: false, alto: false }); ln('DISPOSITIVOS');
   set({ al: 0, b: false }); sep();
 
   filaSi('Ticket:', D.IMEI);
@@ -199,8 +205,8 @@ function modeloTicket(){
 function htmlTicket(L){
   const e = s => esc(s).replace(/ /g, '&nbsp;');
   return L.map(l => {
-    const cls = ['ln', l.b ? 'tb' : '', l.x2 ? 'tx2' : '', l.fb ? 'tfb' : ''].join(' ');
-    const txt = l.inv ? `<span class="tinv">${e(l.s)}</span>` : e(l.s);
+    const cls = ['ln', l.b ? 'tb' : '', l.x2 ? 'tx2' : '', l.alto ? 'talto' : '', l.fb ? 'tfb' : ''].join(' ');
+    const txt = l.inv ? `<span class="tinv">${e(l.s)}</span>` : (l.alto ? `<span>${e(l.s)}</span>` : e(l.s));
     return `<div class="${cls}" style="text-align:${l.al ? 'center' : 'left'}">${txt || '&nbsp;'}</div>`;
   }).join('');
 }
@@ -224,7 +230,7 @@ function ticketTexto(){
   for (const l of modeloTicket()) {
     out.push(0x1B, 0x61, l.al);                       // alineación
     out.push(0x1B, 0x45, l.b ? 1 : 0);                // negrita
-    out.push(0x1D, 0x21, l.x2 ? 0x11 : 0);            // doble tamaño
+    out.push(0x1D, 0x21, l.x2 ? 0x11 : (l.alto ? 0x01 : 0));   // doble tamaño / doble alto
     out.push(0x1B, 0x4D, l.fb ? 1 : 0);               // letra pequeña
     out.push(0x1D, 0x42, l.inv ? 1 : 0);              // blanco sobre negro
     txt(l.s); out.push(10);
@@ -334,7 +340,10 @@ const BLE = (() => {
   const hayBluetooth = !!navigator.bluetooth;
   const esIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
                 (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  const abrirEnBluefy = () => { location.href = 'bluefy://open?url=' + encodeURIComponent(location.href); };
+  const abrirEnBluefy = () => {
+    const u = new URL(location.href); u.searchParams.set('_v', Date.now());   // dirección nueva = sin copia vieja
+    location.href = 'bluefy://open?url=' + encodeURIComponent(u.toString());
+  };
 
   return { imprimir, hayBluetooth, esIOS, abrirEnBluefy };
 })();
@@ -394,7 +403,9 @@ const BLE = (() => {
   });
 })();
 
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+/* Sin copias guardadas: se elimina el service worker anterior y su caché, para que siempre cargue la versión nueva */
+if ('serviceWorker' in navigator) navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())).catch(() => {});
+if (window.caches) caches.keys().then(ks => ks.forEach(k => caches.delete(k))).catch(() => {});
 </script>
 </body>
 </html>
