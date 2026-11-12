@@ -49,7 +49,7 @@
   #ticket .tfb{font-size:15px;line-height:18px;height:18px}
   #ticket .tinv{background:#000;color:#fff}
   #ticket .talto{height:48px;line-height:48px}
-  #ticket .tmarco{height:36px;line-height:24px;padding-top:0}
+  #ticket .tmarco{height:46px;line-height:24px;padding-top:0}
   #ticket .tmarco .tinv{display:inline-block;padding:6px 0}
   #ticket .talto .tinv,#ticket .talto>span{display:inline-block;transform:scaleY(2);transform-origin:center}
   @media print{#ticket .ln{height:auto}}
@@ -227,8 +227,8 @@ function ticketTexto(){
     }
   };
   // Franja negra del ancho de N caracteres, centrada, 6 puntos de alto (imagen de 576 puntos)
-  const franja = n => {
-    const ancho = 576, alto = 6, bpl = ancho / 8, w = n * 12, x0 = Math.round((ancho - w) / 2);
+  const franja = (n, alto = 6) => {
+    const ancho = 576, bpl = ancho / 8, w = n * 12, x0 = Math.round((ancho - w) / 2);
     out.push(0x1D, 0x76, 0x30, 0x00, bpl, 0, alto, 0);
     for (let y = 0; y < alto; y++)
       for (let xb = 0; xb < bpl; xb++) {
@@ -251,6 +251,7 @@ function ticketTexto(){
       out.push(0x1B, 0x33, 24);                       // interlineado justo (sin espacio blanco)
       txt(l.s); out.push(10);
       franja(l.s.length);                             // franja negra abajo
+      franja(0, 10);                                  // espacio blanco antes de la siguiente línea
       out.push(0x1B, 0x32);                           // interlineado normal
       continue;
     }
