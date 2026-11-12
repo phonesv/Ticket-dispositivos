@@ -38,6 +38,14 @@
     .neg{font-size:5mm}.big{font-size:4.4mm}.small{font-size:2.5mm}
     .eslogan{font-size:2.8mm}.legal{font-size:2.2mm}
   }
+  /* Vista fiel a la impresión: papel de 80 mm = 640 px; área impresa de 72 mm = 576 px (48 caracteres x 12 px), 4 mm de margen por lado */
+  #ticket{width:640px!important;padding:24px 32px 30px!important;font-family:"Courier New",Courier,monospace!important;font-size:20px!important;line-height:24px!important}
+  #ticket .ln{white-space:nowrap;overflow:hidden;height:24px}
+  #ticket .tb{font-weight:700}
+  #ticket .tx2{font-size:40px;line-height:48px;height:48px}
+  #ticket .tfb{font-size:15px;line-height:18px;height:18px}
+  #ticket .tinv{background:#000;color:#fff}
+  @media print{#ticket .ln{height:auto}}
 </style>
 </head>
 <body>
@@ -100,59 +108,144 @@ function fechaTxt(){
   return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-function render(){
+/* ================= Ticket en TEXTO (ESC/POS) =================
+   Un solo "modelo" de líneas sirve para las dos cosas:
+   - la vista previa en pantalla (misma letra monoespaciada, mismo ancho, mismos cortes de línea)
+   - la impresión (letras de la impresora, rápida y nítida).
+   Papel 80 mm: 48 caracteres por línea en letra normal, 64 en letra pequeña. */
+const TXT = {
+  COLS: 48,
+  CODEPAGE: 2,          // 2 = PC850 (tildes y ñ). Si salen símbolos raros, prueba 16 (WPC1252) o pon QUITAR_TILDES en true
+  QUITAR_TILDES: false
+};
+
+/* Arma el ticket como lista de líneas con su formato */
+function modeloTicket(){
+  const N = TXT.COLS, L = [];
+  let st = { al: 0, b: false, x2: false, fb: false, inv: false };   // alineación 0 izq / 1 centro
+  const set = o => { st = { ...st, ...o }; };
+  const ln = (s = '') => L.push({ s: String(s), ...st });
+  const cols = () => st.fb ? 64 : (st.x2 ? N / 2 : N);
+  const sep = () => ln('-'.repeat(cols()));
+  const partir = (s, w = cols()) => {
+    const res = []; let cur = '';
+    for (const p of String(s).split(/\s+/).filter(Boolean)) {
+      if (!cur) cur = p;
+      else if ((cur + ' ' + p).length <= w) cur += ' ' + p;
+      else { res.push(cur); cur = p; }
+      while (cur.length > w) { res.push(cur.slice(0, w)); cur = cur.slice(w); }
+    }
+    if (cur) res.push(cur); return res;
+  };
+  const fila = (a, b) => {
+    const w = cols(); a = String(a ?? ''); b = String(b ?? '');
+    if (a.length + b.length + 1 <= w) return ln(a + ' '.repeat(w - a.length - b.length) + b);
+    ln(a); partir(b, w).forEach(t => ln(' '.repeat(w - t.length) + t));
+  };
+  const filaSi = (a, b) => { if (b) fila(a, b); };
+
+  /* Datos */
   const cap = (D.Capacidad || '').trim();
   const descripcion = (D.Modelo || '') + (cap && cap !== '-' ? ' ' + cap : '');
-  const precio = num(D.Precio_Venta);
-  const envio = num(D.Costo_Envio);
+  const precio = num(D.Precio_Venta), envio = num(D.Costo_Envio);
   const total = D.Total !== undefined && D.Total !== '' ? num(D.Total) : precio + envio;
 
-  let h = '';
-  h += `<div class="c"><div class="neg">${esc(NEGOCIO.nombre)}</div>`;
-  h += `<div class="eslogan">${esc(NEGOCIO.eslogan)}</div>`;
-  h += `<div class="small">${esc(NEGOCIO.direccion)}</div><div class="small">${esc(NEGOCIO.tel)}</div></div>`;
-  h += `<div class="sep"></div>`;
+  /* Encabezado */
+  set({ al: 1, b: true, x2: true }); ln(NEGOCIO.nombre);
+  set({ x2: false }); partir(NEGOCIO.eslogan).forEach(t => ln(t));
+  set({ b: false }); partir(NEGOCIO.direccion).forEach(t => ln(t));
+  ln(NEGOCIO.tel);
+  set({ al: 0 }); sep();
 
-  h += `<div class="c"><span class="tag">TICKET DE VENTA</span><div class="b">DISPOSITIVOS</div></div>`;
-  h += `<div class="sep"></div>`;
-  h += line('Ticket:', D.IMEI);
-  h += line('Fecha de venta:', fechaVenta(D.Fecha_Venta));
-  h += line('Cliente:', D.Nombre);
-  h += line('Tel:', D.Telefono);
-  h += line('Asistente:', D.Nombre_Vendedor);
+  set({ al: 1, b: true, inv: true }); ln(' TICKET DE VENTA ');
+  set({ inv: false }); ln('DISPOSITIVOS');
+  set({ al: 0, b: false }); sep();
 
-  h += `<div class="sep"></div><div class="row b"><span>DESCRIPCIÓN</span><span>IMPORTE</span></div><div class="sep" style="margin:6px 0"></div>`;
-  h += `<div class="b" style="word-break:break-word">${esc(descripcion)}</div>`;
-  h += `<div class="row"><span>1 x ${money(precio)}</span><span>${money(precio)}</span></div>`;
+  filaSi('Ticket:', D.IMEI);
+  filaSi('Fecha de venta:', fechaVenta(D.Fecha_Venta));
+  filaSi('Cliente:', D.Nombre);
+  filaSi('Tel:', D.Telefono);
+  filaSi('Asistente:', D.Nombre_Vendedor);
+  sep();
 
-  h += `<div class="sep"></div><div class="b c">DATOS DEL EQUIPO</div>`;
-  h += line('Tipo:', D.TipoModelo);
-  h += line('Equipo:', D.Modelo);
-  h += line('Capacidad:', cap);
-  h += line('Color:', D.Color);
-  h += line('Estado:', D.Estado_Dispositivo);
+  set({ b: true }); fila('DESCRIPCIÓN', 'IMPORTE'); set({ b: false }); sep();
+  set({ b: true }); partir(descripcion).forEach(t => ln(t)); set({ b: false });
+  fila('1 x ' + money(precio), money(precio));
+  sep();
 
-  h += `<div class="sep"></div>`;
-  h += line('Subtotal:', money(precio));
-  h += line('Envío:', money(envio));
-  h += `<div class="row big"><span>TOTAL:</span><span>${money(total)}</span></div>`;
+  set({ al: 1, b: true }); ln('DATOS DEL EQUIPO'); set({ al: 0, b: false });
+  filaSi('Tipo:', D.TipoModelo);
+  filaSi('Equipo:', D.Modelo);
+  filaSi('Capacidad:', cap);
+  filaSi('Color:', D.Color);
+  filaSi('Estado:', D.Estado_Dispositivo);
+  sep();
 
-  h += `<div class="sep"></div>`;
-  h += line('Pago:', D.Tipo_Pago);
+  fila('Subtotal:', money(precio));
+  fila('Envío:', money(envio));
+  set({ b: true, x2: true }); fila('TOTAL:', money(total)); set({ b: false, x2: false });
+  sep();
 
-  h += `<div class="sep"></div><div class="c b">${esc(PIE)}</div>`;
-  h += `<div class="c legal">${esc(LEGAL)}</div>`;
-  h += `<div class="c legal" style="margin-top:4px">Emitido: ${fechaTxt()}</div>`;
-  document.getElementById('ticket').innerHTML = h;
+  filaSi('Pago:', D.Tipo_Pago);
+  sep();
+
+  set({ al: 1, b: true }); ln(PIE); set({ b: false, fb: true });
+  partir(LEGAL).forEach(t => ln(t));
+  ln('Emitido: ' + fechaTxt());
+  return L;
+}
+
+/* Vista previa: cada carácter de la impresora = 12 px (letra normal) en un ticket de 576 px */
+function htmlTicket(L){
+  const e = s => esc(s).replace(/ /g, '&nbsp;');
+  return L.map(l => {
+    const cls = ['ln', l.b ? 'tb' : '', l.x2 ? 'tx2' : '', l.fb ? 'tfb' : ''].join(' ');
+    const txt = l.inv ? `<span class="tinv">${e(l.s)}</span>` : e(l.s);
+    return `<div class="${cls}" style="text-align:${l.al ? 'center' : 'left'}">${txt || '&nbsp;'}</div>`;
+  }).join('');
+}
+
+/* Impresión: convierte las mismas líneas a comandos ESC/POS */
+function ticketTexto(){
+  const out = [];
+  const CP850 = {'á':0xA0,'é':0x82,'í':0xA1,'ó':0xA2,'ú':0xA3,'ñ':0xA4,'Ñ':0xA5,'Á':0xB5,'É':0x90,'Í':0xD6,'Ó':0xE0,'Ú':0xE9,
+                 'ü':0x81,'Ü':0x9A,'¡':0xAD,'¿':0xA8,'½':0xAB,'°':0xF8,'·':0xFA};
+  const txt = s => {
+    for (const ch of String(s)) {
+      const c = ch.charCodeAt(0);
+      if (c < 128) out.push(c);
+      else if (!TXT.QUITAR_TILDES && CP850[ch] !== undefined) out.push(CP850[ch]);
+      else { const base = ch.normalize('NFD').replace(/[̀-ͯ]/g, ''); out.push(base.charCodeAt(0) < 128 ? base.charCodeAt(0) : 63); }
+    }
+  };
+  out.push(0x1B, 0x40);                 // reiniciar
+  out.push(0x1C, 0x2E);                 // apagar modo chino
+  out.push(0x1B, 0x74, TXT.CODEPAGE);   // página de caracteres
+  for (const l of modeloTicket()) {
+    out.push(0x1B, 0x61, l.al);                       // alineación
+    out.push(0x1B, 0x45, l.b ? 1 : 0);                // negrita
+    out.push(0x1D, 0x21, l.x2 ? 0x11 : 0);            // doble tamaño
+    out.push(0x1B, 0x4D, l.fb ? 1 : 0);               // letra pequeña
+    out.push(0x1D, 0x42, l.inv ? 1 : 0);              // blanco sobre negro
+    txt(l.s); out.push(10);
+  }
+  out.push(0x1D, 0x42, 0, 0x1D, 0x21, 0, 0x1B, 0x4D, 0, 0x1B, 0x61, 0);
+  out.push(0x1B, 0x64, 4);              // avanzar 4 líneas
+  out.push(0x1D, 0x56, 0x42, 0x00);     // cortar
+  return new Uint8Array(out);
+}
+
+function render(){
+  document.getElementById('ticket').innerHTML = htmlTicket(modeloTicket());
 }
 render();
 
 /* Ajuste de la vista previa al ancho de la pantalla */
 function fit(){
   const t = document.getElementById('ticket'), w = document.getElementById('wrap');
-  const k = Math.min(1, (window.innerWidth - 24) / 576);
+  const k = Math.min(1, (window.innerWidth - 24) / 640);
   t.style.transform = `scale(${k})`;
-  w.style.width  = (576 * k) + 'px';
+  w.style.width  = (640 * k) + 'px';
   w.style.height = (t.offsetHeight * k) + 'px';
 }
 fit();
@@ -220,20 +313,18 @@ const BLE = (() => {
     return new Uint8Array(out);
   }
 
-  async function imprimir(hacerCanvas, avisar) {
+  async function imprimir(hacerDatos, avisar) {
     // La lista de impresoras se abre de inmediato (el navegador exige que sea justo después del toque)
     const dev = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: SERVICIOS });
     avisar('Preparando ticket…');
-    const datos = raster(await hacerCanvas());
+    const datos = await hacerDatos();   // ya incluye reiniciar, texto y corte
     avisar('Conectando…');
     let ch;
     try { ch = await canal(dev); }
     catch (e) { throw new Error('No se pudo conectar. ¿Está encendida o la está usando otro equipo?'); }
     try {
       avisar('Imprimiendo…');
-      await enviar(ch, new Uint8Array([0x1B, 0x40]));                          // ESC @
       await enviar(ch, datos);
-      await enviar(ch, new Uint8Array([0x1B, 0x64, 0x04, 0x1D, 0x56, 0x42, 0x00])); // avanzar + cortar
       await espera(300);
     } finally {
       try { dev.gatt.disconnect(); } catch (e) {}       // suelta la impresora
@@ -292,7 +383,7 @@ const BLE = (() => {
 
     ocupado = true; btn.disabled = true; btn.textContent = '⏳ Imprimiendo…';
     try {
-      await BLE.imprimir(() => canvasDelTicket(2), avisar);
+      await BLE.imprimir(async () => ticketTexto(), avisar);
       avisar('✅ Impreso', 3000);
     } catch (e) {
       if (e && e.name === 'NotFoundError') avisar('');                    // canceló la lista
