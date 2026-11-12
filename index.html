@@ -66,7 +66,7 @@ const NEGOCIO = {
   nombre:   'PHONE SV',
   eslogan:  '¡Tu mejor opción en calidad, precio y garantía!',
   direccion:'Plaza Comercial Pasares, Km 35 ½ Opico, Local H5, La Libertad Centro, La Libertad, El Salvador',
-  tel:      'WhatsApp: 6064-3493'
+  tel:      ''          // vacío = no se imprime (antes: 'WhatsApp: 6064-3493')
 };
 const MONEDA = '$';
 const PIE = 'Gracias por su compra';
@@ -162,7 +162,7 @@ function modeloTicket(){
   set({ x2: false }); partir(NEGOCIO.eslogan).forEach(t => ln(t));
   ln('');                                             // línea en blanco
   set({ b: false }); partir(NEGOCIO.direccion).forEach(t => ln(t));
-  ln(NEGOCIO.tel);
+  if (NEGOCIO.tel) ln(NEGOCIO.tel);
   set({ al: 0 }); sep();
 
   set({ al: 1, b: true, inv: true, marco: true }); ln('  TICKET DE VENTA  ');   // recuadro negro un poco más alto
